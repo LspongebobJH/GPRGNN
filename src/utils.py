@@ -25,7 +25,7 @@ def random_planetoid_splits(data, num_classes, percls_trn=20, val_lb=500, Flag=0
 
     train_index = torch.cat([i[:percls_trn] for i in indices], dim=0)
 
-    if Flag is 0:
+    if Flag == 0:
         rest_index = torch.cat([i[percls_trn:] for i in indices], dim=0)
         rest_index = rest_index[torch.randperm(rest_index.size(0))]
 
