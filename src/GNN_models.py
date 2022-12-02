@@ -86,7 +86,7 @@ class GPRGNN(torch.nn.Module):
             self.prop1 = GPR_prop(args.K, args.alpha, args.Init, args.Gamma)
 
         self.Init = args.Init
-        self.dprate = args.dprate
+        self.dropout = args.dropout
         self.dropout = args.dropout
 
     def reset_parameters(self):
@@ -100,11 +100,11 @@ class GPRGNN(torch.nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.lin2(x)
 
-        if self.dprate == 0.0:
+        if self.dropout == 0.0:
             x = self.prop1(x, edge_index)
             return F.log_softmax(x, dim=1)
         else:
-            x = F.dropout(x, p=self.dprate, training=self.training)
+            x = F.dropout(x, p=self.dropout, training=self.training)
             x = self.prop1(x, edge_index)
             return F.log_softmax(x, dim=1)
 

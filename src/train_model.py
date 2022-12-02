@@ -16,6 +16,10 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 import numpy as np
+from ray import tune
+import wandb
+
+from init_layers import init_layers
 
 
 def RunExp(args, dataset, data, Net):
@@ -47,11 +51,13 @@ def RunExp(args, dataset, data, Net):
 
     appnp_net = Net(dataset, args)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model, data = appnp_net.to(device), data.to(device)
 
     # permute_masks = random_planetoid_splits
     # data = permute_masks(data, dataset.num_classes, percls_trn, val_lb)
 
-    model, data = appnp_net.to(device), data.to(device)
+    if args.init in ['nimfor', 'nimback']:
+        init_layers(data, appnp_net, args.init)
 
     if args.net in ['APPNP', 'GPRGNN']:
         optimizer = torch.optim.Adam([{
@@ -101,41 +107,12 @@ def RunExp(args, dataset, data, Net):
 
     return test_acc, vacc_mx
 
+def pipe(config:dict):
+    exp = config['exp']
+    name = config['dataset']+'/'+config['init']
+    wandb.init(project=f"exp{exp}", config=config, dir='/mnt/jiahanli/wandb', name=name)
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=5000)
-    parser.add_argument('--lr', type=float, default=0.002)
-    parser.add_argument('--weight_decay', type=float, default=0.0005)
-    parser.add_argument('--early_stopping', type=int, default=200)
-    parser.add_argument('--hidden', type=int, default=64)
-    parser.add_argument('--dropout', type=float, default=0.5)
-    # parser.add_argument('--train_rate', type=float, default=0.6)
-    # parser.add_argument('--val_rate', type=float, default=0.2)
-    parser.add_argument('--K', type=int, default=10)
-    parser.add_argument('--alpha', type=float, default=0.1)
-    parser.add_argument('--dprate', type=float, default=0.5)
-    parser.add_argument('--C', type=int)
-    parser.add_argument('--Init', type=str,
-                        choices=['SGC', 'PPR', 'NPPR', 'Random', 'WS', 'Null'],
-                        default='PPR')
-    parser.add_argument('--Gamma', default=None)
-    parser.add_argument('--ppnp', default='GPR_prop',
-                        choices=['PPNP', 'GPR_prop'])
-    parser.add_argument('--heads', default=8, type=int)
-    parser.add_argument('--output_heads', default=1, type=int)
-
-    parser.add_argument('--dataset', default='film')
-    parser.add_argument('--split', type=int, default=0)
-    parser.add_argument('--cuda', type=int, default=0)
-    parser.add_argument('--RPMAX', type=int, default=10)
-    parser.add_argument('--net', type=str, choices=['GCN', 'GAT', 'APPNP', 'ChebNet', 'JKNet', 'GPRGNN'],
-                        default='GPRGNN')
-
-    args = parser.parse_args()
-
-# def pipe(config:dict):
-#     args = argparse.Namespace(**config)
+    args = argparse.Namespace(**config)
 
     gnn_name = args.net
     if gnn_name == 'GCN':
@@ -154,11 +131,11 @@ if __name__ == '__main__':
     dname = args.dataset
     dataset, data = DataLoader(dname, args.split)
 
-    RPMAX = args.RPMAX
-    Init = args.Init
+    # RPMAX = args.RPMAX
+    # Init = args.Init
 
     Gamma_0 = None
-    alpha = args.alpha
+    # alpha = args.alpha
     # train_rate = args.train_rate
     # val_rate = args.val_rate
     # percls_trn = int(round(train_rate*len(data.y)/dataset.num_classes))
@@ -178,3 +155,75 @@ if __name__ == '__main__':
 
     print(f'{gnn_name} on dataset {args.dataset}, the dataset split is {args.split}:')
     print(f'test acc = {test_acc:.4f} | best val acc = {best_val_acc:.4f}')
+
+def tune_pipe(config):
+    pipe(config)
+    test_acc = pipe(config)
+    tune.report(test_acc=test_acc)
+
+def run_ray():
+    exp = 69
+    num_samples = 1
+    searchSpace = {
+        'dataset': tune.grid_search(['texas', 'wisconsin', 'film', 'squirrel', 'chameleon', 'cornell']),
+        'split': tune.grid_search([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+        'epochs':5000,
+        'lr':tune.grid_search([1e-2, 5e-2, 1e-3, 5e-3]),
+        'weight_decay':tune.grid_search([5e-4, 0.0]),
+        'early_stopping':200,
+        'hidden':tune.grid_search([64, 128]),
+        'dropout':tune.grid_search([0.0, 0.5, 0.7]),
+        'K':10,
+        'alpha':tune.grid_search([0.1, 0.2, 0.5, 0.9]),
+        'C':0,
+        'Init':'PPR',
+        'Gamma':None,
+        'ppnp':'GPR_prop',
+        'heads':8,
+        'output_heads':1,            
+        'net':'GPRGNN',
+        'init': 'nimfor',
+        'exp': 500
+    }
+    
+    print(searchSpace)
+
+    analysis=tune.run(tune_pipe, config=searchSpace, name=f"{exp}", num_samples=num_samples, \
+        resources_per_trial={'cpu': 12, 'gpu':1}, log_to_file=f"out.log", \
+        local_dir="/mnt/jiahanli/nim_output", max_failures=1)
+
+def run_test():
+    searchSpace = {
+        'dataset':'chameleon',
+        'split':0,
+        'epochs':5000,
+        'lr':0.002,
+        'weight_decay':0.0005,
+        'early_stopping':200,
+        'hidden':64,
+        'dropout':0.5,
+        'K':10,
+        'alpha':0.1,
+        'C':0,
+        'Init':'PPR',
+        'Gamma':None,
+        'ppnp':'GPR_prop',
+        'heads':8,
+        'output_heads':1,            
+        'net':'GPRGNN',
+        'init': 'nimfor',
+        'exp': 500
+    }
+
+    print(searchSpace)
+    pipe(searchSpace)
+
+if __name__ == "__main__":
+    run='ray'
+    
+    if run == 'test':
+        run_test()
+    elif run == 'ray':
+        run_ray()
+    
+    print(1)
