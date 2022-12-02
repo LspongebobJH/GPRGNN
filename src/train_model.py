@@ -1,4 +1,3 @@
-#! /usr/bin/env python
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 # Distributed under terms of the MIT license.
@@ -19,9 +18,9 @@ from tqdm import tqdm
 import numpy as np
 
 
-def RunExp(args, dataset, data, Net, percls_trn, val_lb):
+def RunExp(args, dataset, data, Net):
 
-    def train(model, optimizer, data, dprate):
+    def train(model, optimizer, data):
         model.train()
         optimizer.zero_grad()
         out = model(data)[data.train_mask]
@@ -49,8 +48,8 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
     appnp_net = Net(dataset, args)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    permute_masks = random_planetoid_splits
-    data = permute_masks(data, dataset.num_classes, percls_trn, val_lb)
+    # permute_masks = random_planetoid_splits
+    # data = permute_masks(data, dataset.num_classes, percls_trn, val_lb)
 
     model, data = appnp_net.to(device), data.to(device)
 
@@ -74,50 +73,45 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
                                      lr=args.lr,
                                      weight_decay=args.weight_decay)
 
-    best_val_acc = test_acc = 0
-    best_val_loss = float('inf')
-    val_loss_history = []
-    val_acc_history = []
-
+    test_acc = 0
+    cur_step = 0
+    vlss_mn = np.inf
+    vacc_mx = 0.0
     for epoch in range(args.epochs):
-        train(model, optimizer, data, args.dprate)
+        train(model, optimizer, data)
 
         [train_acc, val_acc, tmp_test_acc], preds, [
             train_loss, val_loss, tmp_test_loss] = test(model, data)
+    
+        
+        if val_acc >= vacc_mx or val_loss <= vlss_mn:
+            if val_acc >= vacc_mx and val_loss <= vlss_mn:
+                test_acc = tmp_test_acc
+            vacc_mx = np.max((val_acc, vacc_mx))
+            vlss_mn = np.min((val_loss, vlss_mn))
+            cur_step = 0
+        else:
+            cur_step += 1
+            if cur_step >= args.early_stopping:
+                break
 
-        if val_loss < best_val_loss:
-            best_val_acc = val_acc
-            best_val_loss = val_loss
-            test_acc = tmp_test_acc
-            if args.net == 'GPRGNN':
-                TEST = appnp_net.prop1.temp.clone()
-                Alpha = TEST.detach().cpu().numpy()
-            else:
-                Alpha = args.alpha
-            Gamma_0 = Alpha
+        print(
+            "Epoch {:05d} | Train Loss {:.4f} | Train Acc {:.4f} | Val Loss {:.4f} | Val Acc {:.4f} | Test Acc {:4f} | Patience {}/{}".format(
+                epoch, train_loss.item(), train_acc, val_loss, val_acc, tmp_test_acc, cur_step, args.early_stopping))    
 
-        if epoch >= 0:
-            val_loss_history.append(val_loss)
-            val_acc_history.append(val_acc)
-            if args.early_stopping > 0 and epoch > args.early_stopping:
-                tmp = torch.tensor(
-                    val_loss_history[-(args.early_stopping + 1):-1])
-                if val_loss > tmp.mean().item():
-                    break
-
-    return test_acc, best_val_acc, Gamma_0
+    return test_acc, vacc_mx
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--epochs', type=int, default=1000)
+    parser.add_argument('--epochs', type=int, default=5000)
     parser.add_argument('--lr', type=float, default=0.002)
     parser.add_argument('--weight_decay', type=float, default=0.0005)
     parser.add_argument('--early_stopping', type=int, default=200)
     parser.add_argument('--hidden', type=int, default=64)
     parser.add_argument('--dropout', type=float, default=0.5)
-    parser.add_argument('--train_rate', type=float, default=0.025)
-    parser.add_argument('--val_rate', type=float, default=0.025)
+    # parser.add_argument('--train_rate', type=float, default=0.6)
+    # parser.add_argument('--val_rate', type=float, default=0.2)
     parser.add_argument('--K', type=int, default=10)
     parser.add_argument('--alpha', type=float, default=0.1)
     parser.add_argument('--dprate', type=float, default=0.5)
@@ -131,13 +125,17 @@ if __name__ == '__main__':
     parser.add_argument('--heads', default=8, type=int)
     parser.add_argument('--output_heads', default=1, type=int)
 
-    parser.add_argument('--dataset', default='Cora')
+    parser.add_argument('--dataset', default='film')
+    parser.add_argument('--split', type=int, default=0)
     parser.add_argument('--cuda', type=int, default=0)
     parser.add_argument('--RPMAX', type=int, default=10)
     parser.add_argument('--net', type=str, choices=['GCN', 'GAT', 'APPNP', 'ChebNet', 'JKNet', 'GPRGNN'],
                         default='GPRGNN')
 
     args = parser.parse_args()
+
+# def pipe(config:dict):
+#     args = argparse.Namespace(**config)
 
     gnn_name = args.net
     if gnn_name == 'GCN':
@@ -154,33 +152,29 @@ if __name__ == '__main__':
         Net = GPRGNN
 
     dname = args.dataset
-    dataset, data = DataLoader(dname)
+    dataset, data = DataLoader(dname, args.split)
 
     RPMAX = args.RPMAX
     Init = args.Init
 
     Gamma_0 = None
     alpha = args.alpha
-    train_rate = args.train_rate
-    val_rate = args.val_rate
-    percls_trn = int(round(train_rate*len(data.y)/dataset.num_classes))
-    val_lb = int(round(val_rate*len(data.y)))
-    TrueLBrate = (percls_trn*dataset.num_classes+val_lb)/len(data.y)
-    print('True Label rate: ', TrueLBrate)
+    # train_rate = args.train_rate
+    # val_rate = args.val_rate
+    # percls_trn = int(round(train_rate*len(data.y)/dataset.num_classes))
+    # val_lb = int(round(val_rate*len(data.y)))
+    # TrueLBrate = (percls_trn*dataset.num_classes+val_lb)/len(data.y)
+    # print('True Label rate: ', TrueLBrate)
 
     args.C = len(data.y.unique())
     args.Gamma = Gamma_0
 
-    Results0 = []
+    # for RP in tqdm(range(RPMAX)):
 
-    for RP in tqdm(range(RPMAX)):
+        # test_acc, best_val_acc, Gamma_0 = RunExp(
+        #     args, dataset, data, Net, percls_trn, val_lb)
+    test_acc, best_val_acc = RunExp(
+        args, dataset, data, Net)
 
-        test_acc, best_val_acc, Gamma_0 = RunExp(
-            args, dataset, data, Net, percls_trn, val_lb)
-        Results0.append([test_acc, best_val_acc, Gamma_0])
-
-    test_acc_mean, val_acc_mean, _ = np.mean(Results0, axis=0) * 100
-    test_acc_std = np.sqrt(np.var(Results0, axis=0)[0]) * 100
-    print(f'{gnn_name} on dataset {args.dataset}, in {RPMAX} repeated experiment:')
-    print(
-        f'test acc mean = {test_acc_mean:.4f} \t test acc std = {test_acc_std:.4f} \t val acc mean = {val_acc_mean:.4f}')
+    print(f'{gnn_name} on dataset {args.dataset}, the dataset split is {args.split}:')
+    print(f'test acc = {test_acc:.4f} | best val acc = {best_val_acc:.4f}')
