@@ -88,6 +88,9 @@ def RunExp(args, dataset, data, Net):
 
         [train_acc, val_acc, tmp_test_acc], preds, [
             train_loss, val_loss, tmp_test_loss] = test(model, data)
+
+        wandb.log({'train_acc': train_acc, 'valid_acc': val_acc, 'test_acc': tmp_test_acc})
+        wandb.log({'train_loss': train_loss, 'valid_loss': val_loss, 'test_loss': tmp_test_loss})
     
         
         if val_acc >= vacc_mx or val_loss <= vlss_mn:
@@ -103,7 +106,7 @@ def RunExp(args, dataset, data, Net):
 
         print(
             "Epoch {:05d} | Train Loss {:.4f} | Train Acc {:.4f} | Val Loss {:.4f} | Val Acc {:.4f} | Test Acc {:4f} | Patience {}/{}".format(
-                epoch, train_loss.item(), train_acc, val_loss, val_acc, tmp_test_acc, cur_step, args.early_stopping))    
+                epoch, train_loss.item(), train_acc, val_loss, val_acc, tmp_test_acc, cur_step, args.early_stopping))  
 
     return test_acc, vacc_mx
 
@@ -156,8 +159,12 @@ def pipe(config:dict):
     print(f'{gnn_name} on dataset {args.dataset}, the dataset split is {args.split}:')
     print(f'test acc = {test_acc:.4f} | best val acc = {best_val_acc:.4f}')
 
+    wandb.log({'final_test_acc': test_acc})  
+    wandb.finish()
+
+    return test_acc
+
 def tune_pipe(config):
-    pipe(config)
     test_acc = pipe(config)
     tune.report(test_acc=test_acc)
 
@@ -194,7 +201,7 @@ def run_ray():
 
 def run_test():
     searchSpace = {
-        'dataset':'chameleon',
+        'dataset':'cornell',
         'split':0,
         'epochs':5000,
         'lr':0.002,
@@ -219,7 +226,7 @@ def run_test():
     pipe(searchSpace)
 
 if __name__ == "__main__":
-    run='ray'
+    run='test'
     
     if run == 'test':
         run_test()
