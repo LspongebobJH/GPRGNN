@@ -183,7 +183,7 @@ def run_ray():
         'output_heads':1,            
         'net':'GPRGNN',
         'init': 'nimfor',
-        'exp': 500
+        'exp': exp
     }
     
     print(searchSpace)
