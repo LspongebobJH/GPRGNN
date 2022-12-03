@@ -169,7 +169,7 @@ def tune_pipe(config):
     tune.report(test_acc=test_acc)
 
 def run_ray():
-    exp = 69
+    exp = 70
     num_samples = 1
     searchSpace = {
         'dataset': tune.grid_search(['texas', 'wisconsin', 'film', 'squirrel', 'chameleon', 'cornell']),
@@ -189,7 +189,7 @@ def run_ray():
         'heads':8,
         'output_heads':1,            
         'net':'GPRGNN',
-        'init': 'nimfor',
+        'init': 'nimback',
         'exp': exp
     }
     
@@ -202,15 +202,15 @@ def run_ray():
 def run_test():
     searchSpace = {
         'dataset':'cornell',
-        'split':0,
+        'split':9,
         'epochs':5000,
-        'lr':0.002,
+        'lr':0.05,
         'weight_decay':0.0005,
         'early_stopping':200,
         'hidden':64,
         'dropout':0.5,
         'K':10,
-        'alpha':0.1,
+        'alpha':0.9,
         'C':0,
         'Init':'PPR',
         'Gamma':None,
@@ -234,3 +234,8 @@ if __name__ == "__main__":
         run_ray()
     
     print(1)
+
+'''
+cornell baseline
+[0.72973, 0.7027, 0.7838, 0.6757, 0.72973, 0.7568, 0.62162, 0.75676, 0.64865, 0.7027]
+'''
